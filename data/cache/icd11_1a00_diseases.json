@@ -1,0 +1,24 @@
+[
+  {
+    "orpha_code": 173,
+    "name": "Cholera",
+    "definition": "Cholera is an infectious disease, caused by intestinal infection with <i>Vibrio cholerae</i>, characterized by massive watery diarrhea and severe dehydration that can lead to shock and death if left untreated.",
+    "synonyms": [],
+    "disorder_group": "Disorder",
+    "typology": "Disease",
+    "external_references": {
+      "MeSH": "D002771",
+      "UMLS": "C0008354",
+      "ICD-10": "A00.0",
+      "MedDRA": "10008631",
+      "ICD-11": "1A00",
+      "GARD": "6043"
+    },
+    "orphanet_url": "http://www.orpha.net/consor/cgi-bin/OC_Exp.php?lng=en&Expert=173",
+    "summary": [
+      {
+        "Definition": "Cholera is an infectious disease, caused by intestinal infection with <i>Vibrio cholerae</i>, characterized by massive watery diarrhea and severe dehydration that can lead to shock and death if left untreated."
+      }
+    ]
+  }
+]

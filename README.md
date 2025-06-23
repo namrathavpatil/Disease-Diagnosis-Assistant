@@ -27,7 +27,7 @@ An explainable, interactive, RAG-based AI assistant for supporting rare disease 
 3. **Knowledge Base**
    - PubMed/MedlinePlus integration
    - Orphanet rare disease database
-   - HPO (Human Phenotype Ontology) integration
+   - FDA (OpenFDA API) integration for drug safety and adverse events
 
 4. **Evaluation Framework**
    - Diagnostic accuracy metrics
@@ -54,7 +54,7 @@ graph LR
             direction TB
             KG[(Disease DB)]
             PubMed[(Medical Articles)]
-            HPO[(Symptoms DB)]
+            FDA[(Drug Safety DB)]
         end
         
         %% Processing & Output
@@ -75,7 +75,7 @@ graph LR
 
     class User user
     class Input,Retriever,Generator process
-    class KG,PubMed,HPO database
+    class KG,PubMed,FDA database
     class Confidence decision
     class Diagnosis,Questions,Explanation output
 ```
@@ -89,11 +89,11 @@ graph LR
     %% Data Sources
     Orphanet[Orphanet API] --> |Disease Data| KG
     PubMed[PubMed API] --> |Medical Articles| KG
-    HPO[HPO Database] --> |Phenotypes| KG
+    FDA[FDA API] --> |Drug Safety Data| KG
 
     subgraph KG[Knowledge Graph]
         direction LR
-        Nodes[Disease/Article/Phenotype Nodes] --> |Create| Edges[Relationships]
+        Nodes[Disease/Article/Drug Nodes] --> |Create| Edges[Relationships]
         Edges --> |Generate| Embed[Embeddings]
     end
 
@@ -101,11 +101,11 @@ graph LR
     classDef source fill:#f9f,stroke:#333,stroke-width:2px,color:#000
     classDef process fill:#bbf,stroke:#333,stroke-width:2px,color:#000
 
-    class Orphanet,PubMed,HPO source
+    class Orphanet,PubMed,FDA source
     class Nodes,Edges,Embed process
 ```
 
-> The knowledge graph is constructed by integrating data from multiple sources. We create nodes for diseases, articles, and phenotypes, then establish relationships between them. Each node and relationship is embedded using sentence transformers for semantic search capabilities.
+> The knowledge graph is constructed by integrating data from multiple sources. We create nodes for diseases, articles, and drug safety information, then establish relationships between them. Each node and relationship is embedded using sentence transformers for semantic search capabilities.
 
 ## 🚀 Getting Started
 

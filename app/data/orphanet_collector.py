@@ -80,7 +80,11 @@ class OrphanetDisease:
         logger.info(f"Disease data extracted: {json.dumps(disease_data, indent=2)}")
         
         # Extract name from the correct path in the response
-        name = disease_data.get("name", {}).get("text", "Unknown Disease")
+        # Prefer 'Preferred term' if available
+        preferred_term = None
+        if disease_data.get('results') and 'Preferred term' in disease_data['results']:
+            preferred_term = disease_data['results']['Preferred term']
+        name = preferred_term or disease_data.get("name", {}).get("text", "Unknown Disease")
         orpha_code = disease_data.get("orphacode", disease_id)
         prevalence = disease_data.get("prevalence")
         inheritance = disease_data.get("inheritance", [])
@@ -142,7 +146,7 @@ class OrphanetDisease:
 
     @classmethod
     def search_by_name(cls, name: str, api_key: Optional[str] = None) -> List['OrphanetDisease']:
-        """Search diseases by name."""
+        """Search diseases by name. If no results, try to get the OrphaCode from the /names/{name} endpoint and fetch by code."""
         if not api_key:
             api_key = os.getenv('ORPHANET_API_KEY')
 
@@ -159,16 +163,22 @@ class OrphanetDisease:
             )
             response.raise_for_status()
             data = response.json()
-            
+            # Try to extract ORPHAcode from the response
+            results = data.get("data", {}).get("results", {})
+            orpha_code = results.get("ORPHAcode")
+            if orpha_code:
+                # Fetch full disease info by code
+                disease = cls.from_api(str(orpha_code), api_key)
+                return [disease]
+            # Fallback to old logic if 'diseases' list exists
             diseases = []
             for disease_data in data.get("diseases", []):
                 disease = cls.from_api(disease_data["orphacode"], api_key)
                 diseases.append(disease)
-            
             return diseases
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to search Orphanet diseases by name {name}: {str(e)}")
-            raise
+            return []
 
     @classmethod
     def search_by_icd11(cls, icd11_code: str, api_key: Optional[str] = None) -> List['OrphanetDisease']:

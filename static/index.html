@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Medical RAG Assistant</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f7f7fa; margin: 0; padding: 0; }
+        .container { max-width: 1200px; margin: 40px auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px #0001; padding: 32px; }
+        h1 { text-align: center; color: #2a4d69; }
+        label { font-weight: bold; }
+        input, textarea, button { width: 100%; margin: 8px 0 16px 0; padding: 10px; border-radius: 4px; border: 1px solid #ccc; }
+        button { background: #2a4d69; color: #fff; font-weight: bold; cursor: pointer; transition: background 0.2s; }
+        button:hover { background: #1e3550; }
+        .result, .context, .stats, .entities, .relationships { background: #f0f4f8; border-radius: 4px; padding: 12px; margin-bottom: 16px; }
+        .context-item { margin-bottom: 8px; }
+        .section-title { color: #2a4d69; margin-top: 24px; }
+        .entity-item, .relationship-item { 
+            background: #e8f4fd; 
+            border-left: 4px solid #2a4d69; 
+            padding: 8px; 
+            margin: 4px 0; 
+            border-radius: 4px; 
+        }
+        .entity-type { font-weight: bold; color: #2a4d69; }
+        .confidence { color: #666; font-size: 0.9em; }
+        .tabs { display: flex; margin-bottom: 20px; }
+        .tab { 
+            flex: 1; 
+            padding: 10px; 
+            text-align: center; 
+            background: #f0f4f8; 
+            border: none; 
+            cursor: pointer; 
+            border-radius: 4px 4px 0 0; 
+        }
+        .tab.active { background: #2a4d69; color: white; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .checkbox-group { margin: 10px 0; }
+        .checkbox-group label { font-weight: normal; margin-left: 8px; }
+        .method-badge { 
+            display: inline-block; 
+            padding: 2px 8px; 
+            border-radius: 12px; 
+            font-size: 0.8em; 
+            font-weight: bold; 
+            margin-left: 10px; 
+        }
+        .method-llm { background: #e3f2fd; color: #1976d2; }
+        .method-traditional { background: #f3e5f5; color: #7b1fa2; }
+        .method-rag_ready_llm { background: #e8f5e8; color: #2e7d32; }
+        
+        /* API Endpoints Styles */
+        .endpoint-section { 
+            border: 1px solid #ddd; 
+            border-radius: 8px; 
+            padding: 16px; 
+            margin-bottom: 16px; 
+            background: #fafafa; 
+        }
+        .endpoint-title { 
+            font-weight: bold; 
+            color: #2a4d69; 
+            margin-bottom: 8px; 
+            font-size: 1.1em; 
+        }
+        .endpoint-method { 
+            display: inline-block; 
+            padding: 2px 8px; 
+            border-radius: 4px; 
+            font-size: 0.8em; 
+            font-weight: bold; 
+            margin-right: 8px; 
+        }
+        .method-get { background: #e8f5e8; color: #2e7d32; }
+        .method-post { background: #fff3e0; color: #f57c00; }
+        .endpoint-form { margin-bottom: 12px; }
+        .endpoint-form input, .endpoint-form textarea { 
+            width: calc(100% - 20px); 
+            margin: 4px 0; 
+        }
+        .endpoint-form button { 
+            width: auto; 
+            padding: 8px 16px; 
+            margin: 8px 0; 
+        }
+        .endpoint-result { 
+            background: #f8f9fa; 
+            border: 1px solid #e9ecef; 
+            border-radius: 4px; 
+            padding: 12px; 
+            margin-top: 8px; 
+            max-height: 300px; 
+            overflow-y: auto; 
+            font-family: monospace; 
+            font-size: 0.9em; 
+        }
+        
+        /* Knowledge Graph Visualization */
+        .graph-container { 
+            display: flex; 
+            gap: 20px; 
+            margin-top: 20px; 
+        }
+        .graph-stats { 
+            flex: 1; 
+            background: #f0f4f8; 
+            padding: 16px; 
+            border-radius: 8px; 
+        }
+        .graph-data { 
+            flex: 2; 
+            background: #f0f4f8; 
+            padding: 16px; 
+            border-radius: 8px; 
+            max-height: 500px; 
+            overflow-y: auto; 
+        }
+        .node-list, .edge-list { 
+            margin-bottom: 16px; 
+        }
+        .node-item, .edge-item { 
+            background: #e8f4fd; 
+            padding: 8px; 
+            margin: 4px 0; 
+            border-radius: 4px; 
+            border-left: 3px solid #2a4d69; 
+        }
+        .node-type, .edge-type { 
+            font-weight: bold; 
+            color: #2a4d69; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Medical RAG Assistant</h1>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('query')">Ask Question</button>
+            <button class="tab" onclick="showTab('extract')">Extract Entities</button>
+            <button class="tab" onclick="showTab('search')">Search</button>
+            <button class="tab" onclick="showTab('graph')">Knowledge Graph</button>
+            <button class="tab" onclick="showTab('api')">API Endpoints</button>
+        </div>
+
+        <!-- Query Tab -->
+        <div id="query-tab" class="tab-content active">
+            <form id="query-form">
+                <label for="question">Ask a medical question:</label>
+                <textarea id="question" rows="3" required placeholder="e.g. What are the symptoms of Marfan syndrome? How does Aspirin treat pain?"></textarea>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="build-graph" checked>
+                    <label for="build-graph">Build knowledge graph from question</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="use-llm">
+                    <label for="use-llm">Use DeepSeek LLM for entity extraction (more accurate)</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="use-rag-ready">
+                    <label for="use-rag-ready">Use RAG-Ready Graph with LLM (comprehensive answers from all sources)</label>
+                </div>
+                <button type="submit">Ask</button>
+            </form>
+            <div id="answer-section" style="display:none;">
+                <h2 class="section-title">Answer</h2>
+                <div class="result" id="answer"></div>
+                <div class="result" id="confidence"></div>
+                <div class="result" id="followup" style="display:none;"></div>
+                <h3>Context</h3>
+                <div class="context" id="context"></div>
+                <h3>Entities Extracted <span id="method-badge" class="method-badge"></span></h3>
+                <div class="entities" id="entities"></div>
+                <h3>Relationships Built</h3>
+                <div class="relationships" id="relationships"></div>
+            </div>
+            
+            <hr>
+            
+            <!-- RAG-Ready Graph Builder Section -->
+            <h2 class="section-title">RAG-Ready Knowledge Graph</h2>
+            <p>Build a comprehensive RAG-ready knowledge graph from all collectors and query it for medical information.</p>
+            
+            <!-- Build RAG-Ready Graph -->
+            <form id="rag-build-form">
+                <label for="rag-build-query">Build RAG-ready graph for:</label>
+                <input id="rag-build-query" type="text" required placeholder="e.g. Cholera, Diabetes, Cancer">
+                <label for="rag-build-max-results">Max results per collector:</label>
+                <input type="number" id="rag-build-max-results" value="5" min="1" max="20">
+                <button type="submit">Build RAG-Ready Graph</button>
+            </form>
+            <div id="rag-build-section" style="display:none;">
+                <h3>RAG-Ready Graph Building Results</h3>
+                <div class="result" id="rag-build-message"></div>
+                <div class="result" id="rag-build-stats"></div>
+            </div>
+            
+            <!-- Query RAG-Ready Graph -->
+            <form id="rag-query-form" style="margin-top: 20px;">
+                <label for="rag-query-question">Ask a question using the RAG-ready graph:</label>
+                <textarea id="rag-query-question" rows="3" placeholder="e.g. What are the symptoms of cholera? How is it treated?"></textarea>
+                <label for="rag-query-top-k">Number of relevant chunks to retrieve:</label>
+                <input type="number" id="rag-query-top-k" value="5" min="1" max="20">
+                <button type="submit">Query RAG Graph</button>
+            </form>
+            <div id="rag-query-section" style="display:none;">
+                <h3>RAG-Ready Query Results</h3>
+                <div class="result" id="rag-query-message"></div>
+                <h4>Relevant Chunks</h4>
+                <div class="context" id="rag-query-chunks"></div>
+            </div>
+        </div>
+
+        <!-- Extract Tab -->
+        <div id="extract-tab" class="tab-content">
+            <form id="extract-form">
+                <label for="extract-text">Enter medical text to extract entities:</label>
+                <textarea id="extract-text" rows="4" required placeholder="e.g. Diabetes causes high blood sugar. Metformin is used to treat diabetes and helps control blood glucose levels."></textarea>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="enrich-apis" checked>
+                    <label for="enrich-apis">Enrich with API data</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="extract-use-llm">
+                    <label for="extract-use-llm">Use DeepSeek LLM for extraction (more accurate)</label>
+                </div>
+                <button type="submit">Extract Entities</button>
+            </form>
+            <div id="extract-results" style="display:none;">
+                <h3>Extracted Entities <span id="extract-method-badge" class="method-badge"></span></h3>
+                <div class="entities" id="extracted-entities"></div>
+                <h3>Relationships</h3>
+                <div class="relationships" id="extracted-relationships"></div>
+            </div>
+        </div>
+
+        <!-- Search Tab -->
+        <div id="search-tab" class="tab-content">
+            <h2 class="section-title">Search Knowledge Base</h2>
+            <form id="disease-form">
+                <label for="disease">Disease name:</label>
+                <input id="disease" type="text" placeholder="e.g. Marfan" />
+                <button type="submit">Search Disease</button>
+            </form>
+            <div id="disease-results"></div>
+            <form id="drug-form">
+                <label for="drug">Drug name:</label>
+                <input id="drug" type="text" placeholder="e.g. Advil" />
+                <button type="submit">Search Drug</button>
+            </form>
+            <div id="drug-results"></div>
+        </div>
+
+        <!-- Graph Tab -->
+        <div id="graph-tab" class="tab-content">
+            <h2 class="section-title">Knowledge Graph</h2>
+            
+            <!-- Build Graph from Text -->
+            <form id="build-graph-form">
+                <label for="graph-text">Enter text to build knowledge graph:</label>
+                <textarea id="graph-text" rows="4" required placeholder="e.g. Aspirin treats pain and reduces fever. It is used for heart disease prevention."></textarea>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="graph-use-llm">
+                    <label for="graph-use-llm">Use DeepSeek LLM for extraction (more accurate)</label>
+                </div>
+                <button type="submit">Build Graph from Text</button>
+            </form>
+            <div id="graph-results" style="display:none;">
+                <h3>Graph Building Results</h3>
+                <div class="result" id="graph-message"></div>
+                <h3>Entities Added <span id="graph-method-badge" class="method-badge"></span></h3>
+                <div class="entities" id="graph-entities"></div>
+                <h3>Relationships Added</h3>
+                <div class="relationships" id="graph-relationships"></div>
+            </div>
+            
+            <hr>
+            
+            <!-- Build Graph from Collectors -->
+            <h3 class="section-title">Build Graph from Collectors</h3>
+            <form id="build-collectors-form">
+                <label for="collectors-disease">Disease name to search:</label>
+                <input id="collectors-disease" type="text" required placeholder="e.g. Marfan syndrome, Diabetes, Cancer">
+                <label for="collectors-max-results">Max results per collector:</label>
+                <input type="number" id="collectors-max-results" value="3" min="1" max="10">
+                <button type="submit">Build Graph from Collectors</button>
+            </form>
+            <div id="collectors-results" style="display:none;">
+                <h3>Collectors Graph Building Results</h3>
+                <div class="result" id="collectors-message"></div>
+                <h3>Entities Extracted</h3>
+                <div class="entities" id="collectors-entities"></div>
+                <h3>Relationships Built</h3>
+                <div class="relationships" id="collectors-relationships"></div>
+            </div>
+            
+            <hr>
+            
+            <h3>Knowledge Graph Stats</h3>
+            <div class="stats" id="stats"></div>
+            
+            <div class="graph-container">
+                <div class="graph-stats">
+                    <h4>Graph Statistics</h4>
+                    <div id="graph-stats-detail"></div>
+                </div>
+                <div class="graph-data">
+                    <h4>Graph Data</h4>
+                    <div class="node-list">
+                        <h5>Nodes</h5>
+                        <div id="graph-nodes"></div>
+                    </div>
+                    <div class="edge-list">
+                        <h5>Edges</h5>
+                        <div id="graph-edges"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- API Endpoints Tab -->
+        <div id="api-tab" class="tab-content">
+            <h2 class="section-title">API Endpoints Explorer</h2>
+            
+            <!-- Health Check -->
+            <div class="endpoint-section">
+                <div class="endpoint-title">
+                    <span class="endpoint-method method-get">GET</span>
+                    /health
+                </div>
+                <div class="endpoint-form">
+                    <button onclick="callEndpoint('GET', '/health')">Health Check</button>
+                </div>
+                <div id="health-result" class="endpoint-result" style="display:none;"></div>
+            </div>
+
+            <!-- Query -->
+            <div class="endpoint-section">
+                <div class="endpoint-title">
+                    <span class="endpoint-method method-post">POST</span>
+                    /query
+                </div>
+                <div class="endpoint-form">
+                    <label>Query:</label>
+                    <textarea id="query-text" rows="2" placeholder="Enter your medical question"></textarea>
+                    <label>Max Context:</label>
+                    <input type="number" id="max-context" value="5" min="1" max="20">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="build-graph-check" checked>
+                        <label for="build-graph-check">Build Graph</label>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="use-llm-check">
+                        <label for="use-llm-check">Use LLM</label>
+                    </div>
+                    <button onclick="callQueryEndpoint()">Submit Query</button>
+                </div>
+                <div id="query-result" class="endpoint-result" style="display:none;"></div>
+            </div>
+
+            <!-- RAG-Ready LLM Query -->
+            <div class="endpoint-section">
+                <div class="endpoint-title">
+                    <span class="endpoint-method method-post">POST</span>
+                    /query-rag-ready
+                </div>
+                <div class="endpoint-form">
+                    <label>Query:</label>
+                    <textarea id="rag-query-text" rows="2" placeholder="Enter your medical question"></textarea>
+                    <label>Max Context:</label>
+                    <input type="number" id="rag-max-context" value="5" min="1" max="20">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="rag-build-graph-check" checked>
+                        <label for="rag-build-graph-check">Build Graph</label>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="rag-use-llm-check">
+                        <label for="rag-use-llm-check">Use LLM</label>
+                    </div>
+                    <button onclick="callRAGQueryEndpoint()">Submit RAG-Ready Query</button>
+                </div>
+                <div id="rag-query-result" class="endpoint-result" style="display:none;"></div>
+            </div>
+
+            <!-- Extract Entities -->
+            <div class="endpoint-section">
+                <div class="endpoint-title">
+                    <span class="endpoint-method method-post">POST</span>
+                    /extract-entities
+                </div>
+                <div class="endpoint-form">
+                    <label>Text:</label>
+                    <textarea id="extract-text-api" rows="3" placeholder="Enter text to extract entities from"></textarea>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="enrich-apis-check" checked>
+                        <label for="enrich-apis-check">Enrich with APIs</label>
+                    </div>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="use-llm-extract">
+                        <label for="use-llm-extract">Use LLM</label>
+                    </div>
+                    <button onclick="callExtractEndpoint()">Extract Entities</button>
+                </div>
+                <div id="extract-result" class="endpoint-result" style="display:none;"></div>
+            </div>
+
+            <!-- Extract Entities LLM -->
+            <div class="endpoint-section">
+                <div class="endpoint-title">
+                    <span class="endpoint-method method-post">POST</span>
+                    /extract-entities-llm
+                </div>
+                <div class="endpoint-form">
+                    <label>Text:</label>
+                    <textarea id="extract-llm-text" rows="3" placeholder="Enter text to extract entities using LLM"></textarea>
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="enrich-apis-llm" checked>
+                        <label for="enrich-apis-llm">Enrich with APIs</label>
+                    </div>
+                    <button onclick="callExtractLLMEndpoint()">Extract with LLM</button>
+                </div>
+                <div id="extract-llm-result" class="endpoint-result" style="display:none;"></div>
+            </div>
+
+            <!-- Entity Network -->
+            <div class="endpoint-section">
+                <div class="endpoint-title">
+                    <span class="endpoint-method method-get">GET</span>
+                    /entity-network/{entity_type}/{entity_name}
+                </div>
+                <div class="endpoint-form">
+                    <label>Entity Type:</label>
+                    <input type="text" id="entity-type" placeholder="e.g. disease, drug">
+                    <label>Entity Name:</label>
+                    <input type="text" id="entity-name" placeholder="e.g. Marfan syndrome">
+                    <label>Depth:</label>
+                    <input type="number" id="network-depth" value="2" min="1" max="5">
+                    <button onclick="callEntityNetworkEndpoint()">Get Network</button>
+                </div>
+                <div id="entity-network-result" class="endpoint-result" style="display:none;"></div>
+            </div>
+
+            <!-- Search Diseases -->
+            <div class="endpoint-section">
+                <div class="endpoint-title">
+                    <span class="endpoint-method method-post">POST</span>
+                    /search/diseases
+                </div>
+                <div class="endpoint-form">
+                    <label>Disease Name:</label>
+                    <input type="text" id="search-disease-name" placeholder="e.g. Marfan syndrome">
+                    <label>Max Results:</label>
+                    <input type="number" id="search-disease-max" value="5" min="1" max="20">
+                    <button onclick="callSearchDiseasesEndpoint()">Search Diseases</button>
+                </div>
+                <div id="search-diseases-result" class="endpoint-result" style="display:none;"></div>
+            </div>
+
+            <!-- Search Drugs -->
+            <div class="endpoint-section">
+                <div class="endpoint-title">
+                    <span class="endpoint-method method-post">POST</span>
+                    /search/drugs
+                </div>
+                <div class="endpoint-form">
+                    <label>Drug Name:</label>
+                    <input type="text" id="search-drug-name" placeholder="e.g. Aspirin">
+                    <label>Max Results:</label>
+                    <input type="number" id="search-drug-max" value="5" min="1" max="20">
+                    <button onclick="callSearchDrugsEndpoint()">Search Drugs</button>
+                </div>
+                <div id="search-drugs-result" class="endpoint-result" style="display:none;"></div>
+            </div>
+
+            <!-- Knowledge Graph Stats -->
+            <div class="endpoint-section">
+                <div class="endpoint-title">
+                    <span class="endpoint-method method-get">GET</span>
+                    /knowledge-graph/stats
+                </div>
+                <div class="endpoint-form">
+                    <button onclick="callEndpoint('GET', '/knowledge-graph/stats')">Get Graph Stats</button>
+                </div>
+                <div id="kg-stats-result" class="endpoint-result" style="display:none;"></div>
+            </div>
+
+            <!-- Knowledge Graph Abstract -->
+            <div class="endpoint-section">
+                <div class="endpoint-title">
+                    <span class="endpoint-method method-get">GET</span>
+                    /knowledge-graph/abstract
+                </div>
+                <div class="endpoint-form">
+                    <button onclick="callEndpoint('GET', '/knowledge-graph/abstract')">Get Graph Data</button>
+                </div>
+                <div id="kg-abstract-result" class="endpoint-result" style="display:none;"></div>
+            </div>
+
+            <!-- Build Graph from Collectors -->
+            <div class="endpoint-section">
+                <div class="endpoint-title">
+                    <span class="endpoint-method method-post">POST</span>
+                    /knowledge-graph/from-collectors
+                </div>
+                <div class="endpoint-form">
+                    <label>Disease Name:</label>
+                    <input type="text" id="build-disease-name" placeholder="e.g. Marfan syndrome">
+                    <label>Max Results:</label>
+                    <input type="number" id="build-max-results" value="3" min="1" max="10">
+                    <button onclick="callBuildGraphEndpoint()">Build Graph from Collectors</button>
+                </div>
+                <div id="build-graph-result" class="endpoint-result" style="display:none;"></div>
+            </div>
+
+            <!-- RAG-Ready Graph Builder -->
+            <div class="endpoint-section">
+                <div class="endpoint-title">
+                    <span class="endpoint-method method-post">POST</span>
+                    /rag-ready/build-graph
+                </div>
+                <div class="endpoint-form">
+                    <label>Query:</label>
+                    <input type="text" id="rag-query" placeholder="e.g. Cholera, Diabetes, Cancer">
+                    <label>Max Results:</label>
+                    <input type="number" id="rag-max-results" value="5" min="1" max="20">
+                    <button onclick="callRAGBuildGraphEndpoint()">Build RAG-Ready Graph</button>
+                </div>
+                <div id="rag-build-result" class="endpoint-result" style="display:none;"></div>
+            </div>
+
+            <!-- RAG-Ready Query -->
+            <div class="endpoint-section">
+                <div class="endpoint-title">
+                    <span class="endpoint-method method-post">POST</span>
+                    /rag-ready/query
+                </div>
+                <div class="endpoint-form">
+                    <label>Question:</label>
+                    <textarea id="rag-question" rows="2" placeholder="e.g. What are the symptoms of cholera?"></textarea>
+                    <label>Top K Results:</label>
+                    <input type="number" id="rag-top-k" value="5" min="1" max="20">
+                    <button onclick="callRAGQueryEndpoint()">Query RAG Graph</button>
+                </div>
+                <div id="rag-query-result" class="endpoint-result" style="display:none;"></div>
+            </div>
+
+            <!-- RAG-Ready Stats -->
+            <div class="endpoint-section">
+                <div class="endpoint-title">
+                    <span class="endpoint-method method-get">GET</span>
+                    /rag-ready/stats
+                </div>
+                <div class="endpoint-form">
+                    <button onclick="callEndpoint('GET', '/rag-ready/stats')">Get RAG Stats</button>
+                </div>
+                <div id="rag-stats-result" class="endpoint-result" style="display:none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function showTab(tabName) {
+            // Hide all tab contents
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Show selected tab
+            document.getElementById(tabName + '-tab').classList.add('active');
+            event.target.classList.add('active');
+            
+            // Load graph data if switching to graph tab
+            if (tabName === 'graph') {
+                loadGraphData();
+            }
+        }
+
+        function displayEntities(containerId, entities) {
+            const container = document.getElementById(containerId);
+            if (!entities || entities.length === 0) {
+                container.innerHTML = '<p>No entities found.</p>';
+                return;
+            }
+            
+            container.innerHTML = entities.map(entity => `
+                <div class="entity-item">
+                    <div class="entity-type">${entity.type.toUpperCase()}: ${entity.text}</div>
+                    <div class="confidence">Confidence: ${(entity.confidence * 100).toFixed(1)}%</div>
+                    ${entity.metadata && Object.keys(entity.metadata).length > 0 ? 
+                        `<div>Metadata: ${JSON.stringify(entity.metadata)}</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function displayRelationships(containerId, relationships) {
+            const container = document.getElementById(containerId);
+            if (!relationships || relationships.length === 0) {
+                container.innerHTML = '<p>No relationships found.</p>';
+                return;
+            }
+            
+            container.innerHTML = relationships.map(rel => `
+                <div class="relationship-item">
+                    <strong>${rel.source}</strong> --${rel.type}--> <strong>${rel.target}</strong>
+                    <div class="confidence">Confidence: ${(rel.confidence * 100).toFixed(1)}%</div>
+                </div>
+            `).join('');
+        }
+
+        function updateMethodBadge(badgeId, method) {
+            const badge = document.getElementById(badgeId);
+            if (badge) {
+                badge.textContent = method.toUpperCase();
+                badge.className = `method-badge method-${method}`;
+            }
+        }
+
+        async function fetchStats() {
+            const res = await fetch('/knowledge-graph/stats');
+            const data = await res.json();
+            document.getElementById('stats').innerText = JSON.stringify(data, null, 2);
+        }
+        fetchStats();
+
+        async function loadGraphData() {
+            try {
+                const res = await fetch('/knowledge-graph/abstract');
+                const data = await res.json();
+                
+                // Display graph stats
+                const statsRes = await fetch('/knowledge-graph/stats');
+                const statsData = await statsRes.json();
+                document.getElementById('graph-stats-detail').innerHTML = `
+                    <p><strong>Total Nodes:</strong> ${statsData.total_nodes}</p>
+                    <p><strong>Total Edges:</strong> ${statsData.total_edges}</p>
+                    <p><strong>Node Types:</strong></p>
+                    <ul>${Object.entries(statsData.node_types).map(([type, count]) => `<li>${type}: ${count}</li>`).join('')}</ul>
+                `;
+                
+                // Display nodes
+                const nodesContainer = document.getElementById('graph-nodes');
+                if (data.nodes && data.nodes.length > 0) {
+                    nodesContainer.innerHTML = data.nodes.map(node => `
+                        <div class="node-item">
+                            <div class="node-type">${node.type.toUpperCase()}</div>
+                            <div><strong>ID:</strong> ${node.id}</div>
+                            <div><strong>Name:</strong> ${node.name}</div>
+                        </div>
+                    `).join('');
+                } else {
+                    nodesContainer.innerHTML = '<p>No nodes found in graph.</p>';
+                }
+                
+                // Display edges
+                const edgesContainer = document.getElementById('graph-edges');
+                if (data.edges && data.edges.length > 0) {
+                    edgesContainer.innerHTML = data.edges.map(edge => `
+                        <div class="edge-item">
+                            <div class="edge-type">${edge.type.toUpperCase()}</div>
+                            <div><strong>${edge.source}</strong> → <strong>${edge.target}</strong></div>
+                        </div>
+                    `).join('');
+                } else {
+                    edgesContainer.innerHTML = '<p>No edges found in graph.</p>';
+                }
+            } catch (error) {
+                console.error('Error loading graph data:', error);
+                document.getElementById('graph-stats-detail').innerHTML = '<p>Error loading graph data</p>';
+            }
+        }
+
+        // API Endpoint Functions
+        async function callEndpoint(method, url, body = null) {
+            try {
+                const options = {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' }
+                };
+                if (body) {
+                    options.body = JSON.stringify(body);
+                }
+                
+                const response = await fetch(url, options);
+                const data = await response.json();
+                
+                // Find the result container based on the endpoint
+                const resultId = url.replace(/\//g, '-').substring(1) + '-result';
+                const resultContainer = document.getElementById(resultId);
+                if (resultContainer) {
+                    resultContainer.style.display = 'block';
+                    resultContainer.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                }
+            } catch (error) {
+                console.error('Error calling endpoint:', error);
+                alert('Error calling endpoint: ' + error.message);
+            }
+        }
+
+        function callQueryEndpoint() {
+            const query = document.getElementById('query-text').value;
+            const maxContext = parseInt(document.getElementById('max-context').value);
+            const buildGraph = document.getElementById('build-graph-check').checked;
+            const useLLM = document.getElementById('use-llm-check').checked;
+            
+            callEndpoint('POST', '/query', {
+                query: query,
+                max_context: maxContext,
+                build_graph: buildGraph,
+                use_llm: useLLM
+            });
+        }
+
+        function callExtractEndpoint() {
+            const text = document.getElementById('extract-text-api').value;
+            const enrichApis = document.getElementById('enrich-apis-check').checked;
+            const useLLM = document.getElementById('use-llm-extract').checked;
+            
+            callEndpoint('POST', '/extract-entities', {
+                text: text,
+                enrich_with_apis: enrichApis,
+                use_llm: useLLM
+            });
+        }
+
+        function callExtractLLMEndpoint() {
+            const text = document.getElementById('extract-llm-text').value;
+            const enrichApis = document.getElementById('enrich-apis-llm').checked;
+            
+            callEndpoint('POST', '/extract-entities-llm', {
+                text: text,
+                enrich_with_apis: enrichApis,
+                use_llm: true
+            });
+        }
+
+        function callEntityNetworkEndpoint() {
+            const entityType = document.getElementById('entity-type').value;
+            const entityName = document.getElementById('entity-name').value;
+            const depth = parseInt(document.getElementById('network-depth').value);
+            
+            callEndpoint('GET', `/entity-network/${entityType}/${entityName}?depth=${depth}`);
+        }
+
+        function callSearchDiseasesEndpoint() {
+            const diseaseName = document.getElementById('search-disease-name').value;
+            const maxResults = parseInt(document.getElementById('search-disease-max').value);
+            
+            callEndpoint('POST', '/search/diseases', {
+                disease_name: diseaseName,
+                max_results: maxResults
+            });
+        }
+
+        function callSearchDrugsEndpoint() {
+            const drugName = document.getElementById('search-drug-name').value;
+            const maxResults = parseInt(document.getElementById('search-drug-max').value);
+            
+            callEndpoint('POST', '/search/drugs', {
+                drug_name: drugName,
+                max_results: maxResults
+            });
+        }
+
+        function callBuildGraphEndpoint() {
+            const diseaseName = document.getElementById('build-disease-name').value;
+            const maxResults = parseInt(document.getElementById('build-max-results').value);
+            
+            callEndpoint('POST', '/knowledge-graph/from-collectors', {
+                disease_name: diseaseName,
+                max_results: maxResults
+            });
+        }
+
+        function callRAGBuildGraphEndpoint() {
+            const query = document.getElementById('rag-query').value;
+            const maxResults = parseInt(document.getElementById('rag-max-results').value);
+            
+            callEndpoint('POST', '/rag-ready/build-graph', {
+                query: query,
+                max_results: maxResults
+            });
+        }
+
+        function callRAGQueryEndpoint() {
+            const question = document.getElementById('rag-query-text').value;
+            const maxContext = parseInt(document.getElementById('rag-max-context').value);
+            const buildGraph = document.getElementById('rag-build-graph-check').checked;
+            const useLLM = document.getElementById('rag-use-llm-check').checked;
+            
+            callEndpoint('POST', '/query-rag-ready', {
+                query: question,
+                max_context: maxContext,
+                build_graph: buildGraph,
+                use_llm: useLLM
+            });
+        }
+
+        document.getElementById('query-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const question = document.getElementById('question').value;
+            const buildGraph = document.getElementById('build-graph').checked;
+            const useLLM = document.getElementById('use-llm').checked;
+            const useRAGReady = document.getElementById('use-rag-ready').checked;
+            
+            document.getElementById('answer-section').style.display = 'none';
+            
+            // Choose endpoint based on RAG-ready option
+            const endpoint = useRAGReady ? '/query-rag-ready' : '/query';
+            
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    query: question,
+                    build_graph: buildGraph,
+                    use_llm: useLLM,
+                    use_rag_ready: useRAGReady
+                })
+            });
+            const data = await res.json();
+            
+            document.getElementById('answer').innerText = data.answer;
+            document.getElementById('context').innerHTML = (data.context || []).map(
+                c => `<div class='context-item'><b>${c.type || c.source}:</b> ${c.name || c.content?.substring(0, 100) + '...'}</div>`
+            ).join('');
+            
+            // Show confidence score
+            document.getElementById('confidence').innerHTML = `<b>Confidence:</b> ${(data.confidence * 100).toFixed(1)}%`;
+            
+            // Show follow-up question if present
+            if (data.follow_up_question && data.follow_up_question.trim().length > 0) {
+                document.getElementById('followup').style.display = 'block';
+                document.getElementById('followup').innerHTML = `<b>Follow-up Question:</b> ${data.follow_up_question}`;
+            } else {
+                document.getElementById('followup').style.display = 'none';
+            }
+            
+            displayEntities('entities', data.entities_extracted);
+            displayRelationships('relationships', data.relationships_built);
+            
+            // Update method badge
+            const method = useRAGReady ? 'rag_ready_llm' : (useLLM ? 'llm' : 'traditional');
+            updateMethodBadge('method-badge', method);
+            
+            document.getElementById('answer-section').style.display = 'block';
+            fetchStats(); // Refresh stats
+        };
+
+        document.getElementById('extract-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const text = document.getElementById('extract-text').value;
+            const enrichApis = document.getElementById('enrich-apis').checked;
+            const useLLM = document.getElementById('extract-use-llm').checked;
+            
+            document.getElementById('extract-results').style.display = 'none';
+            
+            const res = await fetch('/extract-entities', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    text: text,
+                    enrich_with_apis: enrichApis,
+                    use_llm: useLLM
+                })
+            });
+            const data = await res.json();
+            
+            displayEntities('extracted-entities', data.entities);
+            displayRelationships('extracted-relationships', data.relationships);
+            
+            // Update method badge
+            updateMethodBadge('extract-method-badge', data.method);
+            
+            document.getElementById('extract-results').style.display = 'block';
+        };
+
+        document.getElementById('build-graph-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const text = document.getElementById('graph-text').value;
+            const useLLM = document.getElementById('graph-use-llm').checked;
+            
+            document.getElementById('graph-results').style.display = 'none';
+            
+            const res = await fetch('/build-graph-from-text', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    text: text,
+                    enrich_with_apis: true,
+                    use_llm: useLLM
+                })
+            });
+            const data = await res.json();
+            
+            document.getElementById('graph-message').innerText = data.message;
+            displayEntities('graph-entities', data.entities);
+            displayRelationships('graph-relationships', data.relationships);
+            
+            // Update method badge
+            updateMethodBadge('graph-method-badge', data.method);
+            
+            document.getElementById('graph-results').style.display = 'block';
+            fetchStats(); // Refresh stats
+            loadGraphData(); // Refresh graph data
+        };
+
+        document.getElementById('disease-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const disease = document.getElementById('disease').value;
+            const res = await fetch('/search/diseases', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ disease_name: disease })
+            });
+            const data = await res.json();
+            document.getElementById('disease-results').innerText = JSON.stringify(data, null, 2);
+        };
+
+        document.getElementById('drug-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const drug = document.getElementById('drug').value;
+            const res = await fetch('/search/drugs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ drug_name: drug })
+            });
+            const data = await res.json();
+            document.getElementById('drug-results').innerText = JSON.stringify(data, null, 2);
+        };
+
+        document.getElementById('build-collectors-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const diseaseName = document.getElementById('collectors-disease').value;
+            const maxResults = parseInt(document.getElementById('collectors-max-results').value);
+            
+            document.getElementById('collectors-results').style.display = 'none';
+            
+            try {
+                const res = await fetch('/knowledge-graph/from-collectors', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        disease_name: diseaseName,
+                        max_results: maxResults
+                    })
+                });
+                const data = await res.json();
+                
+                // Show detailed summary
+                const summary = data.collector_summary || {};
+                document.getElementById('collectors-message').innerHTML = `
+                    <h4>Graph Building Summary for "${diseaseName}"</h4>
+                    <p><strong>PubMed:</strong> ${summary.pubmed_articles || 0} articles processed</p>
+                    <p><strong>Orphanet:</strong> ${summary.orphanet_diseases || 0} diseases found</p>
+                    <p><strong>FDA:</strong> ${summary.fda_drugs || 0} drugs found</p>
+                    <p><strong>Total Entities:</strong> ${summary.total_entities || 0}</p>
+                    <p><strong>Total Relationships:</strong> ${summary.total_relationships || 0}</p>
+                    <p><strong>Graph Nodes:</strong> ${summary.graph_nodes || 0}</p>
+                    <p><strong>Graph Edges:</strong> ${summary.graph_edges || 0}</p>
+                `;
+                
+                displayEntities('collectors-entities', data.entities_extracted);
+                displayRelationships('collectors-relationships', data.relationships_built);
+                
+                document.getElementById('collectors-results').style.display = 'block';
+                fetchStats(); // Refresh stats
+                loadGraphData(); // Refresh graph data
+            } catch (error) {
+                console.error('Error building graph from collectors:', error);
+                document.getElementById('collectors-message').innerHTML = '<p style="color: red;">Error building graph from collectors: ' + error.message + '</p>';
+                document.getElementById('collectors-results').style.display = 'block';
+            }
+        };
+
+        // RAG-Ready Graph Builder Forms
+        document.getElementById('rag-build-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const query = document.getElementById('rag-build-query').value;
+            const maxResults = parseInt(document.getElementById('rag-build-max-results').value);
+            
+            document.getElementById('rag-build-section').style.display = 'none';
+            document.getElementById('rag-build-message').innerHTML = '<p>Building RAG-ready graph... This may take a few moments.</p>';
+            document.getElementById('rag-build-section').style.display = 'block';
+            
+            try {
+                const res = await fetch('/rag-ready/build-graph', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        query: query,
+                        max_results: maxResults
+                    })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    const metadata = data.metadata || {};
+                    const chunksBySource = metadata.chunks_by_source || {};
+                    
+                    document.getElementById('rag-build-message').innerHTML = `
+                        <h4>RAG-Ready Graph Built Successfully for "${query}"</h4>
+                        <p><strong>Total Chunks:</strong> ${data.total_chunks}</p>
+                        <p><strong>Chunks by Source:</strong></p>
+                        <ul>
+                            ${Object.entries(chunksBySource).map(([source, count]) => 
+                                `<li><strong>${source.charAt(0).toUpperCase() + source.slice(1)}:</strong> ${count} chunks</li>`
+                            ).join('')}
+                        </ul>
+                        <p><strong>Files Created:</strong></p>
+                        <ul>
+                            ${data.files_created.map(file => `<li>${file}</li>`).join('')}
+                        </ul>
+                    `;
+                    
+                    document.getElementById('rag-build-stats').innerHTML = `
+                        <h5>Detailed Statistics:</h5>
+                        <pre>${JSON.stringify(metadata, null, 2)}</pre>
+                    `;
+                } else {
+                    document.getElementById('rag-build-message').innerHTML = '<p style="color: red;">Failed to build RAG-ready graph</p>';
+                }
+                
+                document.getElementById('rag-build-section').style.display = 'block';
+            } catch (error) {
+                console.error('Error building RAG-ready graph:', error);
+                document.getElementById('rag-build-message').innerHTML = '<p style="color: red;">Error building RAG-ready graph: ' + error.message + '</p>';
+                document.getElementById('rag-build-section').style.display = 'block';
+            }
+        };
+
+        document.getElementById('rag-query-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const question = document.getElementById('rag-query-question').value;
+            const topK = parseInt(document.getElementById('rag-query-top-k').value);
+            
+            document.getElementById('rag-query-section').style.display = 'none';
+            document.getElementById('rag-query-message').innerHTML = '<p>Querying RAG-ready graph...</p>';
+            document.getElementById('rag-query-section').style.display = 'block';
+            
+            try {
+                const res = await fetch('/rag-ready/query', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        query: question,
+                        top_k: topK
+                    })
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    document.getElementById('rag-query-message').innerHTML = `
+                        <h4>RAG Query Results for "${question}"</h4>
+                        <p><strong>Total Chunks Retrieved:</strong> ${data.total_chunks_retrieved}</p>
+                    `;
+                    
+                    // Display relevant chunks
+                    const chunksContainer = document.getElementById('rag-query-chunks');
+                    if (data.relevant_chunks && data.relevant_chunks.length > 0) {
+                        chunksContainer.innerHTML = data.relevant_chunks.map((chunk, index) => `
+                            <div class="context-item">
+                                <h5>Chunk ${index + 1} (${chunk.source.toUpperCase()} - ${chunk.type})</h5>
+                                <p><strong>Score:</strong> ${(chunk.retrieval_score * 100).toFixed(1)}%</p>
+                                <p><strong>Content:</strong> ${chunk.content}</p>
+                                ${chunk.metadata && Object.keys(chunk.metadata).length > 0 ? 
+                                    `<p><strong>Metadata:</strong> <small>${JSON.stringify(chunk.metadata)}</small></p>` : ''}
+                            </div>
+                        `).join('');
+                    } else {
+                        chunksContainer.innerHTML = '<p>No relevant chunks found.</p>';
+                    }
+                } else {
+                    document.getElementById('rag-query-message').innerHTML = '<p style="color: red;">Failed to query RAG-ready graph</p>';
+                }
+                
+                document.getElementById('rag-query-section').style.display = 'block';
+            } catch (error) {
+                console.error('Error querying RAG-ready graph:', error);
+                document.getElementById('rag-query-message').innerHTML = '<p style="color: red;">Error querying RAG-ready graph: ' + error.message + '</p>';
+                document.getElementById('rag-query-section').style.display = 'block';
+            }
+        };
+    </script>
+</body>
+</html> 

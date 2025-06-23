@@ -6,6 +6,7 @@ import time
 from urllib.parse import quote
 import os
 import json
+from xml.etree import ElementTree as ET
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,23 @@ class PubMedArticle:
                     if isinstance(ref, dict) and "pmid" in ref:
                         references.append(ref["pmid"])
             
+            # Fetch abstract using efetch
+            efetch_url = f"{base_url}/efetch.fcgi"
+            efetch_params = {
+                "db": "pubmed",
+                "id": pmid,
+                "retmode": "xml",
+                "api_key": api_key
+            }
+            efetch_response = requests.get(efetch_url, params=efetch_params)
+            efetch_response.raise_for_status()
+            root = ET.fromstring(efetch_response.text)
+            abstract_text = ""
+            for abstract in root.findall(".//AbstractText"):
+                if abstract.text:
+                    abstract_text += abstract.text + " "
+            abstract_text = abstract_text.strip()
+            
             # Create metadata dictionary
             metadata = {
                 "source": "PubMed",
@@ -129,7 +147,7 @@ class PubMedArticle:
                 pmid=pmid,
                 title=article_data.get("title", ""),
                 authors=authors,
-                abstract=article_data.get("abstract", ""),
+                abstract=abstract_text or article_data.get("abstract", ""),
                 journal=article_data.get("fulljournalname", ""),
                 publication_date=article_data.get("pubdate", ""),
                 mesh_terms=mesh_terms,

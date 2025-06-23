@@ -460,28 +460,260 @@ class KnowledgeGraph:
                 if node.get('type') == 'article':
                     node['name'] = node.get('title', node.get('pmid', 'Unknown Article'))
                 elif node.get('type') == 'disease':
-                    node['name'] = node.get('disease_id', 'Unknown Disease')
+                    node['name'] = node.get('id', 'Unknown Disease')
                 else:
                     node['name'] = node.get('id', 'Unknown')
-            kg.graph.add_node(node.get('disease_id') or node.get('pmid') or node.get('mesh_id') or node.get('chem_id') or node.get('id'), **node)
+            
+            # Use the node's 'id' field as the node identifier
+            node_id = node['id']
+            kg.graph.add_node(node_id, **node)
             
             # Update node dictionaries
             if node["type"] == "disease":
-                kg.disease_nodes[node['disease_id']] = node
+                kg.disease_nodes[node_id] = node
             elif node["type"] == "article":
-                kg.article_nodes[node['pmid']] = node
+                kg.article_nodes[node_id] = node
             elif node["type"] == "mesh_term":
-                kg.mesh_term_nodes[node['mesh_id']] = node
+                kg.mesh_term_nodes[node_id] = node
             elif node["type"] == "chemical":
-                kg.chemical_nodes[node['chem_id']] = node
+                kg.chemical_nodes[node_id] = node
         
-        for edge in graph_data["edges"]:
-            source = edge.pop("source")
-            target = edge.pop("target")
-            kg.graph.add_edge(source, target, **edge)
+        # Add edges if they exist
+        if "edges" in graph_data:
+            for edge in graph_data["edges"]:
+                source = edge.pop("source")
+                target = edge.pop("target")
+                kg.graph.add_edge(source, target, **edge)
         
         # Recompute embeddings
         kg._compute_node_embeddings()
         
         logger.info(f"Loaded knowledge graph from {filepath}")
-        return kg 
+        return kg
+
+    def add_dynamic_entities(self, entities: List[Dict[str, Any]]) -> None:
+        """
+        Add dynamically extracted entities to the knowledge graph.
+        
+        Args:
+            entities: List of entity dictionaries with 'text', 'type', 'confidence', 'metadata'
+        """
+        for entity in entities:
+            entity_id = self._generate_entity_id(entity)
+            
+            # Check if entity already exists
+            if entity_id in self.graph.nodes():
+                continue
+            
+            # Add node to graph
+            node_data = {
+                'type': entity['type'],
+                'name': entity['text'],
+                'confidence': entity['confidence'],
+                'metadata': entity.get('metadata', {})
+            }
+            
+            # Add type-specific data
+            if entity['type'] == 'disease':
+                node_data['disease_id'] = entity_id
+                self.disease_nodes[entity_id] = node_data
+            elif entity['type'] == 'drug':
+                node_data['drug_id'] = entity_id
+            elif entity['type'] == 'symptom':
+                node_data['symptom_id'] = entity_id
+            
+            self.graph.add_node(entity_id, **node_data)
+            
+            logger.info(f"Added {entity['type']} entity: {entity['text']}")
+        
+        # Recompute embeddings after adding new nodes
+        self._compute_node_embeddings()
+    
+    def add_dynamic_relationships(self, relationships: List[Dict[str, Any]]) -> None:
+        """
+        Add dynamically extracted relationships to the knowledge graph.
+        
+        Args:
+            relationships: List of relationship dictionaries with 'source', 'target', 'type', 'confidence'
+        """
+        for rel in relationships:
+            # Handle relationships that may or may not have source_type and target_type
+            source_type = rel.get('source_type')
+            target_type = rel.get('target_type')
+            
+            # If types are not provided, try to infer them from existing nodes
+            if not source_type:
+                source_type = self._infer_entity_type(rel['source'])
+            if not target_type:
+                target_type = self._infer_entity_type(rel['target'])
+            
+            source_id = self._find_entity_id(rel['source'], source_type)
+            target_id = self._find_entity_id(rel['target'], target_type)
+            
+            if source_id and target_id:
+                # Check if relationship already exists
+                if not self.graph.has_edge(source_id, target_id):
+                    self.graph.add_edge(
+                        source_id, 
+                        target_id, 
+                        relationship=rel['type'],  # Use 'relationship' key for consistency
+                        weight=rel.get('confidence', 1.0),
+                        metadata=rel.get('metadata', {})
+                    )
+                    logger.info(f"Added relationship: {rel['source']} --{rel['type']}--> {rel['target']}")
+                else:
+                    # Update existing relationship weight if new one has higher confidence
+                    current_weight = self.graph[source_id][target_id].get('weight', 1.0)
+                    if rel.get('confidence', 1.0) > current_weight:
+                        self.graph[source_id][target_id]['weight'] = rel.get('confidence', 1.0)
+                        logger.info(f"Updated relationship weight: {rel['source']} --{rel['type']}--> {rel['target']}")
+            else:
+                logger.warning(f"Could not add relationship {rel['source']} --{rel['type']}--> {rel['target']}: source_id={source_id}, target_id={target_id}")
+    
+    def _infer_entity_type(self, entity_text: str) -> str:
+        """Infer the type of an entity based on its text and existing nodes."""
+        # First, check if this entity already exists in the graph
+        for node_id, node_data in self.graph.nodes(data=True):
+            if node_data.get('name', '').lower() == entity_text.lower():
+                return node_data.get('type', 'unknown')
+        
+        # If not found, try to infer from the text itself
+        entity_lower = entity_text.lower()
+        
+        # Common disease indicators
+        disease_indicators = ['disease', 'syndrome', 'disorder', 'cancer', 'tumor', 'diabetes', 'hypertension', 'arthritis']
+        if any(indicator in entity_lower for indicator in disease_indicators):
+            return 'disease'
+        
+        # Common drug indicators
+        drug_indicators = ['tablet', 'capsule', 'injection', 'medication', 'drug', 'antibiotic', 'painkiller']
+        if any(indicator in entity_lower for indicator in drug_indicators):
+            return 'drug'
+        
+        # Common symptom indicators
+        symptom_indicators = ['pain', 'fever', 'headache', 'nausea', 'fatigue', 'weakness', 'cough', 'rash']
+        if any(indicator in entity_lower for indicator in symptom_indicators):
+            return 'symptom'
+        
+        # Default to unknown
+        return 'unknown'
+    
+    def _generate_entity_id(self, entity: Dict[str, Any]) -> str:
+        """Generate a unique ID for an entity."""
+        entity_type = entity['type']
+        entity_text = entity['text'].lower().replace(' ', '_')
+        
+        if entity_type == 'disease':
+            return f"disease_{entity_text}"
+        elif entity_type == 'drug':
+            return f"drug_{entity_text}"
+        elif entity_type == 'symptom':
+            return f"symptom_{entity_text}"
+        else:
+            return f"{entity_type}_{entity_text}"
+    
+    def _find_entity_id(self, entity_text: str, entity_type: str) -> Optional[str]:
+        """Find the ID of an entity by its text and type."""
+        # Search in existing nodes
+        for node_id, node_data in self.graph.nodes(data=True):
+            if (node_data.get('name', '').lower() == entity_text.lower() and 
+                node_data.get('type') == entity_type):
+                return node_id
+        
+        # If not found, generate ID
+        return self._generate_entity_id({
+            'text': entity_text,
+            'type': entity_type
+        })
+    
+    def process_medical_question(self, question: str, entity_extractor) -> Dict[str, Any]:
+        """
+        Process a medical question to extract entities and build relationships.
+        
+        Args:
+            question: The medical question text
+            entity_extractor: MedicalEntityExtractor instance
+            
+        Returns:
+            Dictionary with extracted entities and relationships
+        """
+        # Extract entities from the question
+        extracted_entities = entity_extractor.extract_entities(question)
+        
+        # Enrich entities with API data
+        enriched_entities = entity_extractor.enrich_entities(extracted_entities)
+        
+        # Build relationships between entities
+        relationships = entity_extractor.build_relationships(extracted_entities, question)
+        
+        # Add entities and relationships to knowledge graph
+        self.add_dynamic_entities(enriched_entities)
+        self.add_dynamic_relationships(relationships)
+        
+        return {
+            'entities': enriched_entities,
+            'relationships': relationships,
+            'total_entities': len(enriched_entities),
+            'total_relationships': len(relationships)
+        }
+    
+    def get_entity_network(self, entity_text: str, entity_type: str, depth: int = 2) -> Dict[str, Any]:
+        """
+        Get the network around a specific entity.
+        
+        Args:
+            entity_text: Text of the entity
+            entity_type: Type of the entity
+            depth: Maximum distance from the entity
+            
+        Returns:
+            Dictionary with network information
+        """
+        entity_id = self._find_entity_id(entity_text, entity_type)
+        if not entity_id or entity_id not in self.graph.nodes():
+            return {
+                'entity': None,
+                'neighbors': [],
+                'relationships': []
+            }
+        
+        # Get neighbors within specified depth
+        neighbors = set()
+        relationships = []
+        
+        for _ in range(depth):
+            new_neighbors = set()
+            for node in neighbors or [entity_id]:
+                for neighbor in self.graph.neighbors(node):
+                    new_neighbors.add(neighbor)
+                    if node == entity_id:  # Direct relationships
+                        edge_data = self.graph[node][neighbor]
+                        relationships.append({
+                            'source': self.graph.nodes[node]['name'],
+                            'target': self.graph.nodes[neighbor]['name'],
+                            'type': edge_data.get('type', 'related_to'),
+                            'weight': edge_data.get('weight', 1.0)
+                        })
+            neighbors.update(new_neighbors)
+        
+        # Format neighbor information
+        neighbor_info = []
+        for neighbor_id in neighbors:
+            if neighbor_id != entity_id:
+                neighbor_data = self.graph.nodes[neighbor_id]
+                neighbor_info.append({
+                    'id': neighbor_id,
+                    'name': neighbor_data.get('name', 'Unknown'),
+                    'type': neighbor_data.get('type', 'unknown'),
+                    'distance': 1  # Simplified distance calculation
+                })
+        
+        return {
+            'entity': {
+                'id': entity_id,
+                'name': self.graph.nodes[entity_id].get('name', entity_text),
+                'type': entity_type
+            },
+            'neighbors': neighbor_info,
+            'relationships': relationships
+        } 

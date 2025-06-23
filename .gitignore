@@ -36,6 +36,24 @@ wheels/
 *.exe
 *.bin
 
+# Large JSON files (data files that shouldn't be in repo)
+rag_retrieval_examples.json
+rag_entity_nodes.json
+rag_chunks.json
+rag_ready_graph.json
+knowledge_graph.json
+comprehensive_edges.json
+comprehensive_entities.json
+comprehensive_graph.json
+comprehensive_summary.json
+embedding_similarity_edges.json
+built_edges.json
+
+# Cache directories
+data/cache/
+.pytest_cache/
+__pycache__/
+
 # IDE
 .idea/
 .vscode/
@@ -44,4 +62,18 @@ wheels/
 
 # OS
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# SSH keys (security)
+namratha
+namratha.pub
+*.pem
+*.key
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp 

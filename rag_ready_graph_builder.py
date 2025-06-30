@@ -438,49 +438,55 @@ class RAGReadyGraphBuilder:
         return entities[:10]  # Limit to top 10
     
     def build_faiss_index(self, chunks: List[Dict[str, Any]]):
-        """Build FAISS index for RAG retrieval, skipping empty/duplicate chunks."""
-        print(f"Building FAISS index for {len(chunks)} chunks")
+        """Build FAISS index from chunks."""
         if not chunks:
-            print("No chunks to index")
+            print("No chunks provided for FAISS index")
             return
-        # Filter out chunks with empty content or duplicate IDs
+        
+        print(f"Building FAISS index for {len(chunks)} chunks")
+        
+        # Filter out empty chunks and duplicates
         valid_chunks = []
-        ids_seen = set()
-        skipped_empty = 0
-        skipped_duplicate = 0
-        for i, chunk in enumerate(chunks):
-            cid = chunk["id"]
-            content = chunk["content"].strip() if chunk["content"] else ""
-            if not cid:
-                print(f"Chunk {i} has empty ID! Skipping.")
-                skipped_empty += 1
+        seen_ids = set()
+        
+        for chunk in chunks:
+            if not chunk or not chunk.get('content'):
                 continue
-            if cid in ids_seen:
-                print(f"Duplicate chunk ID: {cid} (skipping)")
-                skipped_duplicate += 1
+            
+            chunk_id = chunk.get('id', '')
+            if chunk_id in seen_ids:
+                print(f"Duplicate chunk ID: {chunk_id} (skipping)")
                 continue
-            if not content:
-                print(f"Chunk {cid} has empty content! Skipping.")
-                skipped_empty += 1
-                continue
-            ids_seen.add(cid)
+            
+            seen_ids.add(chunk_id)
             valid_chunks.append(chunk)
-        print(f"Valid chunks for embedding: {len(valid_chunks)} (skipped {skipped_empty} empty, {skipped_duplicate} duplicates)")
+        
+        print(f"Valid chunks for embedding: {len(valid_chunks)} (skipped {len(chunks) - len(valid_chunks)} empty, {len(chunks) - len(valid_chunks) - len([c for c in chunks if c and c.get('content')])} duplicates)")
+        
         if not valid_chunks:
-            print("No valid chunks to index!")
+            print("No valid chunks for embedding")
             return
-        # Compute embeddings for all valid chunks
-        texts = [chunk["content"] for chunk in valid_chunks]
-        embeddings = self.model.encode(texts)
-        # Store chunk information
-        self.chunk_embeddings = {}  # Reset to avoid stale data
+        
+        # Store the valid chunks for retrieval
+        self.text_chunks = valid_chunks
+        
+        # Extract text content for embedding
+        texts = [chunk['content'] for chunk in valid_chunks]
+        
+        # Generate embeddings
+        embeddings = self.model.encode(texts, show_progress_bar=True, batch_size=32)
+        
+        # Store embeddings with chunk IDs
+        self.chunk_embeddings = {}
         for i, chunk in enumerate(valid_chunks):
-            chunk_id = chunk["id"]
-            self.chunk_embeddings[chunk_id] = embeddings[i]
+            self.chunk_embeddings[chunk['id']] = embeddings[i]
+        
         print(f"Chunk embeddings keys: {len(self.chunk_embeddings)}")
+        
         # Build FAISS index
         dimension = embeddings.shape[1]
-        self.faiss_index = faiss.IndexFlatIP(dimension)
+        self.faiss_index = faiss.IndexFlatIP(dimension)  # Inner product for cosine similarity
+        
         self.faiss_index.add(embeddings.astype('float32'))
         print(f"FAISS index built with {len(valid_chunks)} chunks, dimension {dimension}")
     
@@ -497,12 +503,43 @@ class RAGReadyGraphBuilder:
         scored.sort(reverse=True, key=lambda x: x[0])
         return [chunk for score, chunk in scored[:top_k]]
 
-    def retrieve_relevant_chunks(self, query: str, top_k: int = 10000) -> List[Dict[str, Any]]:
-        """Return all chunks for brute-force RAG (feed all to LLM)."""
-        chunk_ids = list(self.chunk_embeddings.keys())
-        all_chunks = [self._get_chunk_data(cid) for cid in chunk_ids if self._get_chunk_data(cid)]
-        print(f"[DEBUG] Feeding {len(all_chunks)} chunks to the LLM.")
-        return all_chunks
+    def retrieve_relevant_chunks(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+        """Retrieve relevant chunks using semantic search."""
+        try:
+            if not self.faiss_index or not self.text_chunks:
+                print("No FAISS index or chunks available. Using keyword fallback.")
+                return self.keyword_fallback(query, self.text_chunks, top_k)
+            
+            # Encode the query
+            query_embedding = self.model.encode([query])
+            
+            # Search the FAISS index
+            scores, indices = self.faiss_index.search(query_embedding.astype('float32'), top_k)
+            
+            # Get the relevant chunks
+            relevant_chunks = []
+            for i, (score, idx) in enumerate(zip(scores[0], indices[0])):
+                if idx < len(self.text_chunks):
+                    chunk = self.text_chunks[idx].copy()
+                    chunk['retrieval_score'] = float(score)
+                    relevant_chunks.append(chunk)
+            
+            # If semantic search didn't find enough results, add keyword-based results
+            if len(relevant_chunks) < top_k:
+                print(f"Semantic search found {len(relevant_chunks)} chunks, adding keyword-based results")
+                keyword_chunks = self.keyword_fallback(query, self.text_chunks, top_k - len(relevant_chunks))
+                for chunk in keyword_chunks:
+                    if chunk not in relevant_chunks:
+                        chunk['retrieval_score'] = 0.5  # Default score for keyword matches
+                        relevant_chunks.append(chunk)
+            
+            print(f"Retrieved {len(relevant_chunks)} relevant chunks for query: {query}")
+            return relevant_chunks
+            
+        except Exception as e:
+            print(f"Error in semantic search: {e}")
+            print("Falling back to keyword search")
+            return self.keyword_fallback(query, self.text_chunks, top_k)
     
     def _get_chunk_data(self, chunk_id: str) -> Dict[str, Any]:
         """Get chunk data by ID."""

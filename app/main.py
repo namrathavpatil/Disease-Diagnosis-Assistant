@@ -680,77 +680,93 @@ async def query_rag_ready_graph(
     query: str = Body(..., embed=True),
     top_k: int = Body(5, embed=True)
 ):
-    """Query the RAG-ready graph for relevant information."""
+    """Query the RAG-ready graph for relevant chunks."""
     try:
-        # Initialize RAG-ready graph builder
-        rag_builder = RAGReadyGraphBuilder()
+        # Check if RAG-ready graph exists
+        if not os.path.exists("rag_ready_graph.json"):
+            raise HTTPException(
+                status_code=404, 
+                detail="RAG-ready graph not found. Please build it first using /rag-ready/build-graph"
+            )
         
-        # Load existing graph if available
-        if os.path.exists("rag_ready_graph.json"):
-            with open("rag_ready_graph.json", "r") as f:
-                rag_structure = json.load(f)
-            
-            # Rebuild FAISS index from chunks
-            chunks = rag_structure.get("chunks", [])
-            if chunks:
-                rag_builder.build_faiss_index(chunks)
-                
-                # Retrieve relevant chunks
-                relevant_chunks = rag_builder.retrieve_relevant_chunks(query, top_k)
-                
-                # Format response
-                formatted_chunks = []
-                for chunk in relevant_chunks:
-                    formatted_chunks.append({
-                        "id": chunk["id"],
-                        "content": chunk["content"],
-                        "type": chunk["type"],
-                        "source": chunk["source"],
-                        "retrieval_score": chunk.get("retrieval_score", 0.0),
-                        "metadata": chunk.get("metadata", {})
-                    })
-                
-                return {
-                    "success": True,
-                    "query": query,
-                    "relevant_chunks": formatted_chunks,
-                    "total_chunks_retrieved": len(formatted_chunks)
+        # Load RAG-ready graph
+        with open("rag_ready_graph.json", "r") as f:
+            rag_structure = json.load(f)
+        
+        # Initialize RAG builder and rebuild index
+        rag_builder = RAGReadyGraphBuilder()
+        chunks = rag_structure.get("chunks", [])
+        
+        if not chunks:
+            raise HTTPException(
+                status_code=404,
+                detail="No chunks found in RAG-ready graph"
+            )
+        
+        # Rebuild FAISS index
+        rag_builder.build_faiss_index(chunks)
+        
+        # Retrieve relevant chunks
+        relevant_chunks = rag_builder.retrieve_relevant_chunks(query, top_k)
+        
+        return {
+            "success": True,
+            "query": query,
+            "total_chunks_retrieved": len(relevant_chunks),
+            "relevant_chunks": [
+                {
+                    "id": chunk["id"],
+                    "content": chunk["content"],
+                    "type": chunk["type"],
+                    "source": chunk["source"],
+                    "retrieval_score": chunk.get("retrieval_score", 0.0),
+                    "metadata": chunk.get("metadata", {})
                 }
-            else:
-                raise HTTPException(status_code=404, detail="No chunks found in RAG-ready graph")
-        else:
-            raise HTTPException(status_code=404, detail="RAG-ready graph not found. Please build it first using /rag-ready/build-graph")
-            
+                for chunk in relevant_chunks
+            ]
+        }
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error querying RAG-ready graph: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/rag-ready/stats")
-async def get_rag_ready_stats():
-    """Get statistics about the RAG-ready graph."""
+@app.post("/rag-ready/simple-query")
+async def simple_rag_query(
+    query: str = Body(..., embed=True),
+    disease: str = Body("cholera", embed=True),
+    max_results: int = Body(3, embed=True)
+):
+    """Simple RAG query that builds graph on-the-fly and answers questions."""
     try:
-        if os.path.exists("rag_ready_graph.json"):
-            with open("rag_ready_graph.json", "r") as f:
-                rag_structure = json.load(f)
-            
-            metadata = rag_structure.get("metadata", {})
-            chunks = rag_structure.get("chunks", [])
-            
-            return {
-                "exists": True,
-                "metadata": metadata,
-                "total_chunks": len(chunks),
-                "chunks_by_source": metadata.get("chunks_by_source", {}),
-                "created_at": metadata.get("created_at", "unknown"),
-                "embedding_model": metadata.get("embedding_model", "unknown")
-            }
-        else:
-            return {
-                "exists": False,
-                "message": "RAG-ready graph not found. Use /rag-ready/build-graph to create one."
-            }
+        # Initialize RAG builder
+        rag_builder = RAGReadyGraphBuilder()
+        
+        # Build RAG-ready graph for the disease
+        logger.info(f"Building RAG-ready graph for {disease}")
+        rag_structure = rag_builder.build_rag_ready_graph(disease, max_results)
+        
+        # Initialize RAG engine
+        kg = KnowledgeGraph()
+        rag_engine = RAGEngine(kg)
+        
+        # Get answer using RAG-ready method
+        result = rag_engine.answer_question(query, use_rag_ready=True)
+        
+        return {
+            "success": True,
+            "query": query,
+            "disease": disease,
+            "answer": result["answer"],
+            "confidence": result.get("confidence", 0.0),
+            "follow_up_question": result.get("follow_up_question"),
+            "context_sources": len(result.get("context", [])),
+            "method": "rag_ready_on_the_fly"
+        }
+        
     except Exception as e:
-        logger.error(f"Error getting RAG-ready stats: {e}")
+        logger.error(f"Error in simple RAG query: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

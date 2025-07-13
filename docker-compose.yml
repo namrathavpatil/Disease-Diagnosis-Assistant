@@ -1,0 +1,48 @@
+services:
+  medical-rag:
+    build: .
+    container_name: medical-rag-app
+    ports:
+      - "8000:8000"
+    env_file:
+      - docker.env
+    environment:
+      # Application settings
+      - PYTHONUNBUFFERED=1
+      - TOKENIZERS_PARALLELISM=false
+    volumes:
+      # Persist knowledge graph and data
+      - ./data:/app/data
+      - ./knowledge_graph.json:/app/knowledge_graph.json
+      - ./rag_ready_graph.json:/app/rag_ready_graph.json
+      - ./rag_chunks.json:/app/rag_chunks.json
+      - ./rag_entity_nodes.json:/app/rag_entity_nodes.json
+      - ./rag_retrieval_examples.json:/app/rag_retrieval_examples.json
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - medical-rag-network
+
+  # Optional: Add a Redis service for caching (uncomment if needed)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: medical-rag-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   restart: unless-stopped
+  #   networks:
+  #     - medical-rag-network
+
+networks:
+  medical-rag-network:
+    driver: bridge
+
+# volumes:
+#   redis_data: 

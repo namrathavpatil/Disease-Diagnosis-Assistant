@@ -24,18 +24,13 @@ class MedicalEntityExtractor:
     
     def __init__(self):
         """Initialize the entity extractor."""
+        # Load English language model for NLP
         try:
-            # Load English language model for NLP
-            import scispacy
-            from scispacy.abbreviation import AbbreviationDetector
-            from scispacy.linking import EntityLinker
-            nlp = spacy.load("en_core_sci_sm")
-            nlp.add_pipe("abbreviation_detector")
-            nlp.add_pipe("scispacy_linker", config={"resolve_abbreviations": True, "linker_name": "umls"})
-            logger.info("Loaded scispaCy model for medical entity extraction")
-        except ImportError:
-            nlp = spacy.load("en_core_web_sm")
-            logger.warning("scispaCy not installed, using default spaCy model")
+            self.nlp = spacy.load("en_core_web_sm")
+            logger.info("Loaded spaCy model for entity extraction")
+        except OSError:
+            logger.error("spaCy model 'en_core_web_sm' not found. Please install it with: python -m spacy download en_core_web_sm")
+            raise
         
         # Medical entity patterns - improved
         self.disease_patterns = [

@@ -2,7 +2,7 @@ import os
 import json
 import logging
 from typing import List, Dict, Any
-from openai import OpenAI
+import together
 
 logger = logging.getLogger(__name__)
 
@@ -12,10 +12,7 @@ class LLMEntityExtractor:
     """
     def __init__(self, api_key: str = None, model_name: str = "mistralai/Mixtral-8x7B-Instruct-v0.1"):
         # Use Together AI with a serverless model (Mixtral-8x7B)
-        self.client = OpenAI(
-            api_key=api_key or "b5f3b531715a443f991a0538ef36636bfc857f32c4719e04b81b101b6c8c3b51",
-            base_url="https://api.together.xyz/v1"
-        )
+        together.api_key = api_key or "b5f3b531715a443f991a0538ef36636bfc857f32c4719e04b81b101b6c8c3b51"
         self.model_name = model_name
         
         # Prompt template for entity extraction
@@ -44,18 +41,18 @@ JSON response:"""
             prompt = self.prompt_template.format(text=text)
             
             # Call the LLM
-            response = self.client.chat.completions.create(
+            response = together.Complete.create(
+                prompt=f"<|im_start|>system\nYou are a medical entity extraction expert. Always respond with valid JSON only.<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n",
                 model=self.model_name,
-                messages=[
-                    {"role": "system", "content": "You are a medical entity extraction expert. Always respond with valid JSON only."},
-                    {"role": "user", "content": prompt}
-                ],
+                max_tokens=500,
                 temperature=0.1,
-                max_tokens=500
+                top_p=0.7,
+                top_k=50,
+                repetition_penalty=1.1
             )
             
             # Extract the response content
-            result = response.choices[0].message.content.strip()
+            result = response['output']['choices'][0]['text'].strip()
             
             # Try to parse the JSON response
             try:
@@ -120,17 +117,17 @@ Text to analyze: {text}
 
 JSON response:"""
 
-            response = self.client.chat.completions.create(
+            response = together.Complete.create(
+                prompt=f"<|im_start|>system\nYou are a medical knowledge extraction expert. Always respond with valid JSON only.<|im_end|>\n<|im_start|>user\n{relationship_prompt}<|im_end|>\n<|im_start|>assistant\n",
                 model=self.model_name,
-                messages=[
-                    {"role": "system", "content": "You are a medical knowledge extraction expert. Always respond with valid JSON only."},
-                    {"role": "user", "content": relationship_prompt}
-                ],
+                max_tokens=1000,
                 temperature=0.1,
-                max_tokens=1000
+                top_p=0.7,
+                top_k=50,
+                repetition_penalty=1.1
             )
             
-            result = response.choices[0].message.content.strip()
+            result = response['output']['choices'][0]['text'].strip()
             
             # Clean up the response
             if result.startswith("```json"):
@@ -195,16 +192,16 @@ JSON response:"""
         Returns a dict with 'nodes' and 'edges'.
         """
         try:
-            response = self.client.chat.completions.create(
+            response = together.Complete.create(
+                prompt=f"<|im_start|>system\nYou are a medical knowledge graph builder. Always respond with valid JSON only.<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n",
                 model=self.model_name,
-                messages=[
-                    {"role": "system", "content": "You are a medical knowledge graph builder. Always respond with valid JSON only."},
-                    {"role": "user", "content": prompt}
-                ],
+                max_tokens=2000,
                 temperature=0.1,
-                max_tokens=2000
+                top_p=0.7,
+                top_k=50,
+                repetition_penalty=1.1
             )
-            result = response.choices[0].message.content.strip()
+            result = response['output']['choices'][0]['text'].strip()
             # Clean up the response
             if result.startswith("```json"):
                 result = result[7:]

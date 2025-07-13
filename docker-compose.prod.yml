@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  medical-rag:
+    build: .
+    container_name: medical-rag-app-prod
+    ports:
+      - "8000:8000"
+    environment:
+      # API Keys (set these in .env file)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - TOGETHER_API_KEY=${TOGETHER_API_KEY}
+      - ORPHANET_API_KEY=${ORPHANET_API_KEY}
+      # Production settings
+      - PYTHONUNBUFFERED=1
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - LOG_LEVEL=INFO
+    volumes:
+      # Persist knowledge graph and data
+      - medical_rag_data:/app/data
+      - medical_rag_graphs:/app/graphs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - medical-rag-network
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+    security_opt:
+      - no-new-privileges:true
+    read_only: false
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+
+  # Nginx reverse proxy for production
+  nginx:
+    image: nginx:alpine
+    container_name: medical-rag-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - medical-rag
+    restart: unless-stopped
+    networks:
+      - medical-rag-network
+
+networks:
+  medical-rag-network:
+    driver: bridge
+
+volumes:
+  medical_rag_data:
+    driver: local
+  medical_rag_graphs:
+    driver: local 
